@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "altb"
-version = "0.2.0"
+version = "0.2.1"
 description = ""
 authors = ["Elran Shefer <elran777@gmail.com>"]
 license = "MIT"
