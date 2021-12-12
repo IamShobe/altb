@@ -96,10 +96,10 @@ class AppConfig(BaseModel):
         if app_name not in self.binaries:
             self.binaries[app_name] = BinaryStruct()
 
-        for tag, binary_config in self.binaries[app_name].tags.items():
+        for existing_tag, binary_config in self.binaries[app_name].tags.items():
             if binary_config.path == app_path:
                 raise RichValueError("path '{app_path}' already exist at tag {tag} in {app_name} application!",
-                                     app_path=app_path, tag=tag, app_name=app_name)
+                                     app_path=app_path, tag=existing_tag, app_name=app_name)
 
         self.binaries[app_name][tag] = TagConfig(path=app_path, tag=tag, description=description)
 

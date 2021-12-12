@@ -187,6 +187,7 @@ app_name_option = typer.Argument(None, help='Binary application name - <app_name
 is_short_option = typer.Option(False, '-1', '-s', '--short', help="Print short version")
 all_tags_option = typer.Option(False, '-a', '--all', help="Print all tags")
 
+
 @app.command()
 def track(
         ctx: typer.Context,
