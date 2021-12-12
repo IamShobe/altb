@@ -1,9 +1,15 @@
 [tool.poetry]
 name = "altb"
-version = "0.2.1"
-description = ""
+version = "0.2.2"
+description = "Cli tool for tracking over binaries and easily swapping between them"
+readme = "README.md"
 authors = ["Elran Shefer <elran777@gmail.com>"]
 license = "MIT"
+classifiers = [
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Utilities",
+]
+homepage = "https://github.com/IamShobe/altb"
 
 [tool.poetry.dependencies]
 python = "^3.7"
