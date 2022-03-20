@@ -196,8 +196,22 @@ class AppConfig(BaseModel):
             set: list,
         }
 
-    def track(self, app_name: str, app_path: pathlib.Path, tag: str = None,
-              description: str = None, should_copy: bool = False, force: bool = False):
+    def track_command(self, app_name: str, command: str, tag: str = None,
+                      description: str = None, working_directory: pathlib.Path = None):
+        if working_directory and not working_directory.exists():
+            raise RichValueError("path {app_path} doesn't exist!", app_path=working_directory)
+
+        if tag is None:
+            tag = str(uuid.uuid4())[:8]
+
+        if app_name not in self.binaries:
+            self.binaries[app_name] = BinaryStruct(name=app_name)
+
+        spec = CommandTag(command=command, working_directory=working_directory)
+        self.binaries[app_name][tag] = TagConfig(tag=tag, description=description, kind=TagKind.COMMAND_TYPE, spec=spec)
+
+    def track_path(self, app_name: str, app_path: pathlib.Path, tag: str = None,
+                   description: str = None, should_copy: bool = False, force: bool = False):
         if not app_path.exists():
             raise RichValueError("path {app_path} doesn't exist!", app_path=app_path)
 
@@ -259,8 +273,9 @@ class AppConfig(BaseModel):
             raise RichValueError("tag {tag} doesn't exist in application {app_name}", app_name=app_name, tag=tag)
 
         app = self.binaries[app_name]
-        app.assert_valid()
-        app.unselect_current_tag()
+        if app.selected:
+            app.assert_valid()
+            app.unselect_current_tag()
 
         if tag is not None:
             app.select_tag(tag)
