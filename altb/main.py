@@ -1,26 +1,25 @@
-import re
-import sys
 import curses
 import pathlib
+import re
+import sys
 from contextlib import contextmanager
+from typing import Union, List, Dict, TypeVar, TypedDict, Tuple, Optional, cast
 
 import pkg_resources
-from typing import Union, List, Dict, TypeVar, TypedDict, Tuple, Optional
-
-import yaml
 import typer
-from rich.prompt import Confirm
-from rich.tree import Tree
-from rich.text import Text
-from rich.live import Live
+import yaml
 from blessed import Terminal
-from rich.syntax import Syntax
-from rich.padding import Padding
-from rich.console import ConsoleRenderable, Console, ConsoleOptions, RenderResult, Group
 from natsort import natsorted
+from rich.console import ConsoleRenderable, Console, ConsoleOptions, RenderResult, Group
+from rich.live import Live
+from rich.padding import Padding
+from rich.prompt import Confirm
+from rich.syntax import Syntax
+from rich.text import Text
+from rich.tree import Tree
 
 from altb.common import console, error_console
-from altb.config import Settings, RichText, settings_changes, TagConfig
+from altb.config import Settings, RichText, settings_changes, TagConfig, TagKind, pretty_errors
 from altb.constants import TYPE_TO_COLOR, PACKAGE_NAME
 
 app = typer.Typer()
@@ -133,6 +132,7 @@ def run_selector(options: List[Dict[str, T]], single=True) -> List[T]:
 
 @app.command()
 def config(ctx: typer.Context, is_json: bool = typer.Option(False, '-j', '--json', help='Output in json format')):
+    """Get the config specifications."""
     settings = ctx.ensure_object(Settings)
     to_print = settings.config.json(indent=2)
     if not is_json:
@@ -174,18 +174,26 @@ def complete_full_app_name(ctx: typer.Context, incomplete: str):
             for tag, tag_struct in binary_struct.tags.items():
                 full_name = f"{key}@{tag}"
                 if incomplete in full_name:
-                    yield full_name, str(tag_struct.path)
+                    if tag_struct.kind == TagKind.LINK_TYPE:
+                        yield full_name, str(tag_struct.spec.path)
+
+                    elif tag_struct.kind == TagKind.COMMAND_TYPE:
+                        yield full_name, f"{tag_struct.spec.command} at {tag_struct.spec.working_directory}"
 
 
 full_app_name_option = typer.Argument(...,
-                                      help='Binary application name - <app_name>[@<tag_name>] - example: python@3.9.8',
+                                      help="Binary application name - <app_name>[@<tag_name>] - example: python@3.9.8",
                                       callback=parse_app_name, autocompletion=complete_full_app_name)
 app_name_regex = re.compile(r'(?P<app_name>\w+)(?:@(?P<tag>.+))?')
 
-app_name_option = typer.Argument(None, help='Binary application name - <app_name> - example: python',
+app_name_option = typer.Argument(None, help="Binary application name - <app_name> - example: python",
                                  autocompletion=complete_app_name)
 is_short_option = typer.Option(False, '-1', '-s', '--short', help="Print short version")
+is_current_option = typer.Option(False, '-t', '--current-tag', help="Print current tag only")
 all_tags_option = typer.Option(False, '-a', '--all', help="Print all tags")
+
+should_force_option = typer.Option(False, '-f', '--force', help="Force operation")
+should_copy_option = typer.Option(False, '-c', '--copy', help="Copy file to versions directory - (mainly for binaries)")
 
 
 @app.command()
@@ -194,11 +202,15 @@ def track(
         app_details=full_app_name_option,
         app_path: pathlib.Path = typer.Argument(..., help='Binary actual path'),
         description: str = typer.Option(None, "-d", "--description", help="Description of the tracked file"),
+        should_copy: bool = should_copy_option,
+        force: bool = should_force_option,
 ):
+    """Add new tracking."""
     settings = ctx.ensure_object(Settings)
     app_name, tag = app_details  # type: str
     with settings_changes(settings):
-        settings.config.track(app_name, app_path, tag=tag, description=description)
+        settings.config.track(app_name, app_path, tag=tag, description=description, should_copy=should_copy,
+                              force=force)
 
 
 @app.command(name="list")
@@ -207,7 +219,9 @@ def list_applications(
         app_name: Optional[str] = app_name_option,
         is_short: bool = is_short_option,
         all_tags: bool = all_tags_option,
+        current_only: bool = is_current_option,
 ):
+    """List all applications tracked."""
     settings = ctx.ensure_object(Settings)
     if len(settings.config.binaries) == 0:
         error_console.print(f'No binaries currently tracked, please use "{PACKAGE_NAME} track" command to start')
@@ -217,11 +231,21 @@ def list_applications(
         error_console.print(RichText('app {app_name} doesn\'t exist in config!', app_name=app_name))
         raise typer.Exit(1)
 
+    if app_name is not None and current_only:
+        selected_tag = settings.config.binaries[app_name].selected
+        if not selected_tag:
+            error_console.print(RichText("app {app_name} doesn\'t have selected tag!", app_name=app_name))
+            raise typer.Exit(1)
+
+        console.print(Text(selected_tag, style=TYPE_TO_COLOR['tag']))
+        return
+
     app_names = [app_name] if app_name is not None else settings.config.binaries.keys()
     for app_name in app_names:
         tree = Tree(Text(app_name, style=TYPE_TO_COLOR['app_name']))
         selected_tag = settings.config.binaries[app_name].selected
         for tag, value in natsorted(settings.config.binaries[app_name].tags.items(), key=lambda a: a[0]):
+            tag_struct = cast(TagConfig, value)
             if not all_tags and tag != selected_tag:
                 continue
 
@@ -229,10 +253,21 @@ def list_applications(
             line = Text("* " if tag == selected_tag else "  ", style="bold magenta3") + Text(tag,
                                                                                              style=TYPE_TO_COLOR['tag'])
             if not is_short:
-                line += Text(" - ", style="reset") + Text(str(value.path), style=TYPE_TO_COLOR['app_path'])
+                if tag_struct.kind == TagKind.LINK_TYPE:
+                    line += Text(" - ", style="reset") + Text(str(tag_struct.spec.path),
+                                                              style=TYPE_TO_COLOR['app_path'])
+
+                elif tag_struct.kind == TagKind.COMMAND_TYPE:
+                    line += (
+                            Text(" - ", style="reset") +
+                            Text(str(tag_struct.spec.command), style=TYPE_TO_COLOR['command']) +
+                            Text(' at ', style="reset") +
+                            Text(str(tag_struct.spec.working_directory), style=TYPE_TO_COLOR['app_path'])
+                    )
+
             group.renderables.append(line)
-            if value.description and not is_short:
-                group.renderables.append(Padding(Text(value.description), pad=(0, 0, 0, 4), expand=False))
+            if tag_struct.description and not is_short:
+                group.renderables.append(Padding(Text(tag_struct.description), pad=(0, 0, 0, 4), expand=False))
 
             tree.add(group)
         console.print(tree)
@@ -244,6 +279,7 @@ def rename_tag(
         app_details=full_app_name_option,
         tag_name: str = typer.Argument(..., help="New tag name to change to")
 ):
+    """Rename tag."""
     settings = ctx.ensure_object(Settings)
     app_name, tag = app_details  # type: str
     if not tag:
@@ -260,6 +296,7 @@ def describe(
         app_details=full_app_name_option,
         description: str = typer.Option(None, "-d", "--description", help="Description of the tracked file"),
 ):
+    """Add description to a given app's tag."""
     settings = ctx.ensure_object(Settings)
     app_name, tag = app_details  # type: str
     if not tag:
@@ -280,13 +317,26 @@ def get_tag_dynamic(settings: Settings, app_name: str):
         natsorted(settings.config.binaries[app_name].tags.items(), key=lambda a: a[0])
     options: List[Entry] = []
     for tag, details in tags:
-        options.append({
-            "key": RichText("{tag} - {app_path}", tag=tag, app_path=details.path).text,
-            "value": tag,
-        })
+        if details.kind == TagKind.LINK_TYPE:
+            options.append({
+                "key": RichText("{tag} - {app_path}", tag=tag, app_path=details.spec.path).text,
+                "value": tag,
+            })
+
+        elif details.kind == TagKind.COMMAND_TYPE:
+            options.append({
+                "key": RichText(
+                    "{tag} - {command} at {app_path}",
+                    tag=tag, command=details.spec.command,
+                    app_path=details.spec.working_directory,
+                ).text,
+                "value": tag,
+            })
+
     with run_selector(options) as (live, selector):
+        tag = selector.selections[0]
         live.update(RichText('using tag {tag} for app {app_name}', tag=tag, app_name=app_name))
-        return selector.selections[0]
+        return tag
 
 
 @app.command()
@@ -294,6 +344,7 @@ def use(
         ctx: typer.Context,
         app_details: str = full_app_name_option,
 ):
+    """Select which tag to run of a given app."""
     settings = ctx.ensure_object(Settings)
     app_name, tag = app_details  # type: str
     if not tag:
@@ -304,10 +355,26 @@ def use(
 
 
 @app.command()
+def run(
+        ctx: typer.Context,
+        app_name: str = app_name_option,
+        args: Optional[List[str]] = typer.Argument(None)
+):
+    """Run application with propagated args."""
+    if args is None:
+        args = []
+
+    settings = ctx.ensure_object(Settings)
+    with pretty_errors():
+        settings.config.run(app_name, args)
+
+
+@app.command()
 def untrack(
         ctx: typer.Context,
         app_details: str = full_app_name_option,
 ):
+    """Remove tracking of a tag completely."""
     settings = ctx.ensure_object(Settings)
     app_name, tag = app_details  # type: str
     if not tag:
@@ -322,6 +389,7 @@ def unlink(
         ctx: typer.Context,
         app_name: str = app_name_option,
 ):
+    """Unset selected tag for a given app."""
     settings = ctx.ensure_object(Settings)
     with settings_changes(settings):
         settings.config.select(app_name, tag=None)
