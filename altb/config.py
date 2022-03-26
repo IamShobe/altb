@@ -145,7 +145,7 @@ class BinaryStruct(BaseModel):
             with open(destination, 'w') as f:
                 f.writelines([
                     "#!/bin/sh\n",
-                    f"{PACKAGE_NAME} run {self.name} \"$@\""
+                    f"{PACKAGE_NAME} run {self.name} -- \"$@\""
                 ])
 
             os.chmod(destination, 0o755)
