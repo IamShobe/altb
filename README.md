@@ -17,7 +17,7 @@ for example:
 ```bash
 altb track path python@2.7 /bin/python2.7
 altb track path python@3.8 /bin/python3.8
-# altb track python ~/Downloads/python # will also work and generate a new hash for it
+# altb track path python ~/Downloads/python # will also work and generate a new hash for it
 ```
 
 List all tracked versions:
