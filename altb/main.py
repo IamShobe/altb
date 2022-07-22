@@ -19,7 +19,13 @@ from rich.tree import Tree
 
 from altb.track import track
 from altb.common import console, error_console
-from altb.config import Settings, RichText, settings_changes, TagConfig, TagKind, pretty_errors
+from altb.config import (Settings,
+                         RichText,
+                         TagConfig,
+                         settings_changes,
+                         BaseTagConfig,
+                         TagKind,
+                         pretty_errors)
 from altb.constants import TYPE_TO_COLOR, PACKAGE_NAME
 from altb.options import app_name_option, is_short_option, is_current_option, all_tags_option, should_force_option, \
     should_copy_option, full_app_name_option

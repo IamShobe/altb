@@ -1,16 +1,16 @@
 import enum
 import os
 import pathlib
+import shlex
 import shutil
-import stat
 import subprocess
 import uuid
 from contextlib import contextmanager
-from typing import Tuple, Optional, Dict, Union, List
+from typing import Literal, Tuple, Optional, Dict, Union, List
 
 import typer
 import yaml
-from pydantic import BaseModel, BaseSettings, PrivateAttr
+from pydantic import BaseModel, BaseSettings, PrivateAttr, StrictBool
 from rich.console import ConsoleOptions, RenderResult, Console, ConsoleRenderable
 
 from altb.constants import CONFIG_FILE, TYPE_TO_COLOR, PACKAGE_NAME, VERSIONS_DIRECTORY
@@ -53,9 +53,32 @@ class RichValueError(ValueError):
         yield RichText(self.msg, **self.kwargs)
 
 
-class LinkTag(BaseModel):
+class TagKind(enum.Enum):
+    LINK_TYPE = 'link'
+    COMMAND_TYPE = 'command'
+
+
+class BaseTagConfig(BaseModel):
+    description: Optional[str]
+    kind: TagKind
+    spec: None
+
+    class Config:
+        extra = 'forbid'
+
+    def __hash__(self):
+        return hash((self.kind, hash(self.spec)))
+
+    def __eq__(self, other):
+        return hash(self) == hash(other)
+
+
+class LinkTagSpec(BaseModel):
     path: pathlib.Path
-    is_copy: Optional[bool] = False
+    is_copy: Optional[StrictBool] = False
+
+    class Config:
+        extra = 'forbid'
 
     def __hash__(self):
         return hash(self.path)
@@ -67,9 +90,18 @@ class LinkTag(BaseModel):
         pass
 
 
-class CommandTag(BaseModel):
+class LinkTag(BaseTagConfig):
+    kind: TagKind = TagKind.LINK_TYPE
+    spec: LinkTagSpec
+
+
+class CommandTagSpec(BaseModel):
     command: str
     working_directory: Optional[pathlib.Path]
+    env: Optional[dict[str, str]]
+
+    class Config:
+        extra = 'forbid'
 
     def __hash__(self):
         return hash(self.command)
@@ -78,22 +110,12 @@ class CommandTag(BaseModel):
         return hash(self) == hash(other)
 
 
-class TagKind(enum.Enum):
-    LINK_TYPE = 'link'
-    COMMAND_TYPE = 'command'
+class CommandTag(BaseTagConfig):
+    kind: TagKind = TagKind.COMMAND_TYPE
+    spec: CommandTagSpec
 
 
-class TagConfig(BaseModel):
-    kind: TagKind
-    description: Optional[str]
-    spec: Union[LinkTag, CommandTag]
-
-    def __hash__(self):
-        return hash((self.kind, hash(self.spec)))
-
-    def __eq__(self, other):
-        return hash(self) == hash(other)
-
+TagConfig = Union[CommandTag, LinkTag]
 
 TagDict = Dict[str, TagConfig]
 
@@ -102,6 +124,9 @@ class BinaryStruct(BaseModel):
     name: str
     tags: TagDict = {}
     selected: Optional[str] = None
+
+    class Config:
+        extra = 'forbid'
 
     def __getitem__(self, item):
         return self.tags[item]
@@ -161,15 +186,23 @@ class BinaryStruct(BaseModel):
             raise RichValueError("tag {tag} of app {app_name} must be of type {tag_type} to be runnable",
                                  tag=self.selected, app_name=self.name, tag_type=TagKind.COMMAND_TYPE.value)
 
-        args_as_string = " ".join(args)
+        working_directory = None
         if tag_struct.spec.working_directory:
             if not tag_struct.spec.working_directory.exists():
                 raise RichValueError("path '{path}' doesn't exists for command in tag {tag} of app {app_name}",
                                      path=tag_struct.spec.working_directory, tag=self.selected, app_name=self.name)
 
-            os.chdir(tag_struct.spec.working_directory)
+            working_directory = tag_struct.spec.working_directory
 
-        os.system(f"{tag_struct.spec.command} {args_as_string}")
+        user_command = shlex.split(tag_struct.spec.command)
+        full_command = [*user_command, *args]
+
+        process_env = {**os.environ}
+        if tag_struct.spec.env is not None:
+            for key, value in tag_struct.spec.env.items():
+                process_env[key] = value
+
+        subprocess.call(full_command, cwd=working_directory, env=process_env)
 
     def assert_valid(self):
         selected_tag = self.selected
@@ -195,6 +228,7 @@ class AppConfig(BaseModel):
             pathlib.Path: str,
             set: list,
         }
+        extra = 'forbid'
 
     def track_command(self, app_name: str, command: str, tag: str = None,
                       description: str = None, working_directory: pathlib.Path = None):
@@ -207,8 +241,8 @@ class AppConfig(BaseModel):
         if app_name not in self.binaries:
             self.binaries[app_name] = BinaryStruct(name=app_name)
 
-        spec = CommandTag(command=command, working_directory=working_directory)
-        self.binaries[app_name][tag] = TagConfig(tag=tag, description=description, kind=TagKind.COMMAND_TYPE, spec=spec)
+        spec = CommandTagSpec(command=command, working_directory=working_directory)
+        self.binaries[app_name][tag] = CommandTag(description=description, spec=spec)
 
     def track_path(self, app_name: str, app_path: pathlib.Path, tag: str = None,
                    description: str = None, should_copy: bool = False, force: bool = False):
@@ -231,7 +265,8 @@ class AppConfig(BaseModel):
                                      f"Please delete it manually or use -f flag")
             shutil.copy(original_app_path, app_path)
 
-        for existing_tag, binary_config in self.binaries[app_name].tags.items():
+        copy_tags = {**self.binaries[app_name].tags}
+        for existing_tag, binary_config in copy_tags.items():
             if binary_config.kind == TagKind.LINK_TYPE:
                 if binary_config.spec.path == app_path:
                     if not force:
@@ -241,8 +276,8 @@ class AppConfig(BaseModel):
 
                     self.remove(app_name, existing_tag)
 
-        spec = LinkTag(path=app_path, is_copy=should_copy)
-        self.binaries[app_name][tag] = TagConfig(tag=tag, description=description, kind=TagKind.LINK_TYPE, spec=spec)
+        spec = LinkTagSpec(path=app_path, is_copy=should_copy)
+        self.binaries[app_name][tag] = LinkTag(description=description, spec=spec)
 
     def rename_tag(self, app_name: str, tag: str, new_tag: str):
         if app_name not in self.binaries:
@@ -317,14 +352,17 @@ class Settings(BaseSettings):
             os.makedirs(directory, exist_ok=True)
 
         with self.config_path.open(mode='w') as f:
-            yaml.safe_dump(yaml.safe_load(self._config.json()), f)
+            yaml.safe_dump(yaml.safe_load(
+                self._config.json(exclude_none=True),
+            ), f)
 
     def load_or_create(self) -> Tuple[AppConfig, bool]:
         if not self.config_path.exists():
             return DEFAULT_CONFIG, True
 
         with self.config_path.open() as f:
-            return AppConfig(**yaml.safe_load(f)), False
+            content = yaml.safe_load(f)
+            return AppConfig.validate(content), False
 
     @property
     def config(self) -> AppConfig:
