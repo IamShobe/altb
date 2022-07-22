@@ -1,4 +1,4 @@
-import enum
+import abc
 import os
 import pathlib
 import shlex
@@ -6,11 +6,13 @@ import shutil
 import subprocess
 import uuid
 from contextlib import contextmanager
-from typing import Literal, Tuple, Optional, Dict, Union, List
+from enum import Enum
+from typing import Literal, Tuple, Optional, Dict, Union, List, Annotated
 
+import pydantic
 import typer
 import yaml
-from pydantic import BaseModel, BaseSettings, PrivateAttr, StrictBool
+from pydantic import BaseModel, BaseSettings, PrivateAttr, StrictBool, StrictStr, Field, BaseConfig
 from rich.console import ConsoleOptions, RenderResult, Console, ConsoleRenderable
 
 from altb.constants import CONFIG_FILE, TYPE_TO_COLOR, PACKAGE_NAME, VERSIONS_DIRECTORY
@@ -27,7 +29,7 @@ class RichText(ConsoleRenderable):
         new_kwargs = {}
         for kwarg, value in self.kwargs.items():
             if kwarg in TYPE_TO_COLOR:
-                color = TYPE_TO_COLOR[kwarg]
+                color = TYPE_TO_COLOR[kwarg]  # type: ignore
                 new_kwargs[kwarg] = f"[{color}]{value}[/{color}]"
 
             else:
@@ -41,7 +43,7 @@ class RichText(ConsoleRenderable):
         yield self.text
 
 
-class RichValueError(ValueError):
+class RichValueError(ValueError, ConsoleRenderable):
     def __init__(self, msg, **kwargs):
         self.kwargs = kwargs
         self.msg = msg
@@ -53,18 +55,18 @@ class RichValueError(ValueError):
         yield RichText(self.msg, **self.kwargs)
 
 
-class TagKind(enum.Enum):
-    LINK_TYPE = 'link'
-    COMMAND_TYPE = 'command'
+class TagKind(str, Enum):
+    link = "link"
+    command = "command"
 
 
-class BaseTagConfig(BaseModel):
-    description: Optional[str]
+class BaseTag(BaseModel, abc.ABC):
     kind: TagKind
-    spec: None
+    description: Optional[str]
+    spec: BaseModel
 
-    class Config:
-        extra = 'forbid'
+    class Config(BaseConfig):
+        extra = pydantic.Extra.forbid
 
     def __hash__(self):
         return hash((self.kind, hash(self.spec)))
@@ -77,8 +79,8 @@ class LinkTagSpec(BaseModel):
     path: pathlib.Path
     is_copy: Optional[StrictBool] = False
 
-    class Config:
-        extra = 'forbid'
+    class Config(BaseConfig):
+        extra = pydantic.Extra.forbid
 
     def __hash__(self):
         return hash(self.path)
@@ -86,22 +88,19 @@ class LinkTagSpec(BaseModel):
     def __eq__(self, other):
         return hash(self) == hash(other)
 
-    def remove(self):
-        pass
 
-
-class LinkTag(BaseTagConfig):
-    kind: TagKind = TagKind.LINK_TYPE
+class LinkTag(BaseTag):
+    kind: Literal[TagKind.link] = TagKind.link
     spec: LinkTagSpec
 
 
 class CommandTagSpec(BaseModel):
     command: str
     working_directory: Optional[pathlib.Path]
-    env: Optional[dict[str, str]]
+    env: Optional[dict[StrictStr, StrictStr]]
 
-    class Config:
-        extra = 'forbid'
+    class Config(BaseConfig):
+        extra = pydantic.Extra.forbid
 
     def __hash__(self):
         return hash(self.command)
@@ -110,12 +109,12 @@ class CommandTagSpec(BaseModel):
         return hash(self) == hash(other)
 
 
-class CommandTag(BaseTagConfig):
-    kind: TagKind = TagKind.COMMAND_TYPE
+class CommandTag(BaseTag):
+    kind: Literal[TagKind.command] = TagKind.command
     spec: CommandTagSpec
 
 
-TagConfig = Union[CommandTag, LinkTag]
+TagConfig = Annotated[Union[CommandTag, LinkTag], Field(discriminator="kind")]
 
 TagDict = Dict[str, TagConfig]
 
@@ -125,8 +124,8 @@ class BinaryStruct(BaseModel):
     tags: TagDict = {}
     selected: Optional[str] = None
 
-    class Config:
-        extra = 'forbid'
+    class Config(BaseConfig):
+        extra = pydantic.Extra.forbid
 
     def __getitem__(self, item):
         return self.tags[item]
@@ -145,11 +144,11 @@ class BinaryStruct(BaseModel):
         selected = self.tags[self.selected]
         destination = self.destination
 
-        if selected.kind == TagKind.LINK_TYPE:
+        if isinstance(selected, LinkTag):
             if destination.exists():
                 destination.unlink()
 
-        elif selected.kind == TagKind.COMMAND_TYPE:
+        elif isinstance(selected, CommandTag):
             if destination.exists():
                 os.remove(destination)
 
@@ -162,11 +161,11 @@ class BinaryStruct(BaseModel):
         destination = self.destination
         tag_struct = self.tags[tag]
 
-        if tag_struct.kind == TagKind.LINK_TYPE:
+        if isinstance(tag_struct, LinkTag):
             source = tag_struct.spec.path
             destination.symlink_to(source)
 
-        if tag_struct.kind == TagKind.COMMAND_TYPE:
+        if isinstance(tag_struct, CommandTag):
             with open(destination, 'w') as f:
                 f.writelines([
                     "#!/bin/sh\n",
@@ -182,9 +181,9 @@ class BinaryStruct(BaseModel):
             raise RichValueError("app {app_name} doesn't have any selected tag!", app_name=self.name)
 
         tag_struct = self.tags[self.selected]
-        if not tag_struct.kind == TagKind.COMMAND_TYPE:
+        if not isinstance(tag_struct, CommandTag):
             raise RichValueError("tag {tag} of app {app_name} must be of type {tag_type} to be runnable",
-                                 tag=self.selected, app_name=self.name, tag_type=TagKind.COMMAND_TYPE.value)
+                                 tag=self.selected, app_name=self.name, tag_type=tag_struct.kind)
 
         working_directory = None
         if tag_struct.spec.working_directory:
@@ -207,7 +206,7 @@ class BinaryStruct(BaseModel):
     def assert_valid(self):
         selected_tag = self.selected
         selected_struct = self.tags[selected_tag]
-        if selected_struct.kind == TagKind.LINK_TYPE:
+        if isinstance(selected_struct, LinkTag):
             if self.destination.is_symlink():
                 actual_link = self.destination.readlink()
                 if selected_struct.spec.path != actual_link:
@@ -223,12 +222,12 @@ class BinaryStruct(BaseModel):
 class AppConfig(BaseModel):
     binaries: Dict[str, BinaryStruct] = {}
 
-    class Config:
+    class Config(BaseConfig):
         json_encoders = {
             pathlib.Path: str,
             set: list,
         }
-        extra = 'forbid'
+        extra = pydantic.Extra.forbid
 
     def track_command(self, app_name: str, command: str, tag: str = None,
                       description: str = None, working_directory: pathlib.Path = None):
@@ -267,7 +266,7 @@ class AppConfig(BaseModel):
 
         copy_tags = {**self.binaries[app_name].tags}
         for existing_tag, binary_config in copy_tags.items():
-            if binary_config.kind == TagKind.LINK_TYPE:
+            if isinstance(binary_config, LinkTag):
                 if binary_config.spec.path == app_path:
                     if not force:
                         raise RichValueError("path '{app_path}' already exist at tag {tag} in {app_name} application! "
@@ -341,7 +340,8 @@ DEFAULT_CONFIG: AppConfig = AppConfig()
 
 class Settings(BaseSettings):
     config_path: pathlib.Path = CONFIG_FILE
-    class Config:
+
+    class Config(BaseSettings.Config):
         env_prefix = f'{PACKAGE_NAME}_'
 
     _config: AppConfig = PrivateAttr(None)
@@ -352,24 +352,26 @@ class Settings(BaseSettings):
             os.makedirs(directory, exist_ok=True)
 
         with self.config_path.open(mode='w') as f:
-            yaml.safe_dump(yaml.safe_load(
-                self._config.json(exclude_none=True),
-            ), f)
+            yaml.safe_dump(yaml.safe_load(self._config.json(exclude_none=True)), f)
 
     def load_or_create(self) -> Tuple[AppConfig, bool]:
         if not self.config_path.exists():
-            return DEFAULT_CONFIG, True
+            return DEFAULT_CONFIG.copy(), False
 
         with self.config_path.open() as f:
             content = yaml.safe_load(f)
-            return AppConfig.validate(content), False
+            return AppConfig(**content), True
 
     @property
     def config(self) -> AppConfig:
         if self._config is None:
-            self._config, should_create_new = self.load_or_create()
-            if should_create_new:
-                self.save()
+            try:
+                self._config, exists_on_disk = self.load_or_create()
+                if not exists_on_disk:
+                    self.save()
+
+            except pydantic.ValidationError as e:
+                raise RichValueError(str(e))
 
         return self._config
 
@@ -385,7 +387,7 @@ def pretty_errors():
 
 
 @contextmanager
-def settings_changes(settings):
+def settings_changes(settings: Settings):
     with pretty_errors():
         try:
             yield

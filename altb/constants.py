@@ -13,6 +13,8 @@ class TypeColor(TypedDict):
     tag: str
     app_name: str
     app_path: str
+    tag_type: str
+    command: str
 
 
 TYPE_TO_COLOR: TypeColor = {

@@ -1,4 +1,5 @@
 import curses
+import json
 import pathlib
 import sys
 from contextlib import contextmanager
@@ -23,12 +24,9 @@ from altb.config import (Settings,
                          RichText,
                          TagConfig,
                          settings_changes,
-                         BaseTagConfig,
-                         TagKind,
-                         pretty_errors)
+                         pretty_errors, CommandTag, LinkTag)
 from altb.constants import TYPE_TO_COLOR, PACKAGE_NAME
-from altb.options import app_name_option, is_short_option, is_current_option, all_tags_option, should_force_option, \
-    should_copy_option, full_app_name_option
+from altb.options import app_name_option, is_short_option, is_current_option, all_tags_option, full_app_name_option
 
 app = typer.Typer()
 
@@ -197,11 +195,11 @@ def list_applications(
             line = Text("* " if tag == selected_tag else "  ", style="bold magenta3") + Text(tag,
                                                                                              style=TYPE_TO_COLOR['tag'])
             if not is_short:
-                if tag_struct.kind == TagKind.LINK_TYPE:
+                if isinstance(tag_struct, LinkTag):
                     line += Text(" - ", style="reset") + Text(str(tag_struct.spec.path),
                                                               style=TYPE_TO_COLOR['app_path'])
 
-                elif tag_struct.kind == TagKind.COMMAND_TYPE:
+                elif isinstance(tag_struct, CommandTag):
                     line += (
                             Text(" - ", style="reset") +
                             Text(str(tag_struct.spec.command), style=TYPE_TO_COLOR['command']) +
@@ -261,13 +259,13 @@ def get_tag_dynamic(settings: Settings, app_name: str):
         natsorted(settings.config.binaries[app_name].tags.items(), key=lambda a: a[0])
     options: List[Entry] = []
     for tag, details in tags:
-        if details.kind == TagKind.LINK_TYPE:
+        if isinstance(details, LinkTag):
             options.append({
                 "key": RichText("{tag} - {app_path}", tag=tag, app_path=details.spec.path).text,
                 "value": tag,
             })
 
-        elif details.kind == TagKind.COMMAND_TYPE:
+        elif isinstance(details, CommandTag):
             options.append({
                 "key": RichText(
                     "{tag} - {command} at {app_path}",
@@ -339,13 +337,39 @@ def unlink(
         settings.config.select(app_name, tag=None)
 
 
+@app.command()
+def explain(
+        ctx: typer.Context,
+        model: Optional[str] = typer.Argument(None),
+        dump_all: Optional[bool] = typer.Option(False, '-a', '--all', help='Dump all scheme')
+):
+    settings = ctx.ensure_object(Settings)
+
+    scheme = settings.config.schema()
+
+    if model is not None:
+        if model not in scheme['definitions']:
+            error_console.print(RichText('model `{model}` does not exists', model=model))
+            raise typer.Exit(1)
+
+        console.print(Syntax(json.dumps(scheme['definitions'][model], indent=2), "json",
+                             background_color="default", word_wrap=True))
+
+    else:
+        if not dump_all:
+            del scheme['definitions']
+
+        console.print(Syntax(json.dumps(scheme, indent=2), "json",
+                             background_color="default", word_wrap=True))
+
+
 @app.callback(invoke_without_command=True)
 def _main(
-        ctx: typer.Context,
-        version: bool = typer.Option(False, '-v', '--version', help='Show version', is_eager=True),
+        version: Optional[bool] = typer.Option(None, '-v', '--version', help='Show version', is_eager=True),
 ):
-    if version:
+    if version is not None and version:
         typer.echo(__version__)
+        raise typer.Exit()
 
 
 def main():
