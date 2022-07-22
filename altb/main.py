@@ -1,22 +1,21 @@
+import sys
 import curses
 import json
-import pathlib
-import sys
 from contextlib import contextmanager
 from typing import Union, List, Dict, TypeVar, TypedDict, Tuple, Optional, cast
 
-import pkg_resources
 import typer
 import yaml
+import pkg_resources
+from rich.live import Live
+from rich.tree import Tree
+from rich.text import Text
 from blessed import Terminal
 from natsort import natsorted
-from rich.console import ConsoleRenderable, Console, ConsoleOptions, RenderResult, Group
-from rich.live import Live
 from rich.padding import Padding
 from rich.prompt import Confirm
 from rich.syntax import Syntax
-from rich.text import Text
-from rich.tree import Tree
+from rich.console import ConsoleRenderable, Console, ConsoleOptions, RenderResult, Group
 
 from altb.track import track
 from altb.common import console, error_console
