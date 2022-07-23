@@ -1,0 +1,12 @@
+from .base_migration import BaseMigration, SCHEMAS_DIRECTORY
+
+
+class Migration{{ migration_name | to_camel }}(BaseMigration):
+    EXPECTED_SCHEMA = SCHEMAS_DIRECTORY / {{ schema_file | tojson}}
+
+    def migrate(self, input_config: dict) -> dict:
+        return input_config
+
+    def rollback(self, input_config: dict) -> dict:
+        return input_config
+
