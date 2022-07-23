@@ -3,8 +3,7 @@ import re
 import typer
 
 from altb.common import error_console
-from altb.config import Settings, TagKind
-
+from altb.config import Settings, LinkTag, CommandTag
 
 app_name_regex = re.compile(r'(?P<app_name>\w+)(?:@(?P<tag>.+))?')
 
@@ -37,10 +36,10 @@ def complete_full_app_name(ctx: typer.Context, incomplete: str):
             for tag, tag_struct in binary_struct.tags.items():
                 full_name = f"{key}@{tag}"
                 if incomplete in full_name:
-                    if tag_struct.kind == TagKind.LINK_TYPE:
+                    if isinstance(tag_struct, LinkTag):
                         yield full_name, str(tag_struct.spec.path)
 
-                    elif tag_struct.kind == TagKind.COMMAND_TYPE:
+                    elif isinstance(tag_struct, CommandTag):
                         yield full_name, f"{tag_struct.spec.command} at {tag_struct.spec.working_directory}"
 
 
