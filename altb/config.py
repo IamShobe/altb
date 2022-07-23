@@ -12,11 +12,13 @@ from typing import Literal, Tuple, Optional, Dict, Union, List, Annotated
 import yaml
 import typer
 import pydantic
-from pydantic import BaseModel, BaseSettings, PrivateAttr, StrictBool, StrictStr, Field, BaseConfig
+from pydantic import BaseModel, BaseSettings, PrivateAttr, StrictStr, Field, BaseConfig
 from rich.console import ConsoleOptions, RenderResult, Console, ConsoleRenderable
 
 from altb.constants import CONFIG_FILE, TYPE_TO_COLOR, PACKAGE_NAME, VERSIONS_DIRECTORY
 from altb.common import error_console
+from altb.migrator import migrator
+from altb.migrator.versions import ConfigVersion
 
 
 class RichText(ConsoleRenderable):
@@ -58,6 +60,7 @@ class RichValueError(ValueError, ConsoleRenderable):
 class TagKind(str, Enum):
     link = "link"
     command = "command"
+    build = "build"
 
 
 class BaseTag(BaseModel, abc.ABC):
@@ -77,7 +80,6 @@ class BaseTag(BaseModel, abc.ABC):
 
 class LinkTagSpec(BaseModel):
     path: pathlib.Path
-    is_copy: Optional[StrictBool] = False
 
     class Config(BaseConfig):
         extra = pydantic.Extra.forbid
@@ -112,6 +114,28 @@ class CommandTagSpec(BaseModel):
 class CommandTag(BaseTag):
     kind: Literal[TagKind.command] = TagKind.command
     spec: CommandTagSpec
+
+
+class HashOptions(BaseModel):
+    sources_directories: List[str]
+    match_glob: List[str]
+    ignore_glob: List[str]
+
+
+class BuildTagSpec(BaseModel):
+    build_command: str
+    working_directory: Optional[pathlib.Path]
+    env: Optional[dict[StrictStr, StrictStr]]
+    output_binary_path: str
+    hash_options: Optional[HashOptions] = None
+
+    class Config(BaseConfig):
+        extra = pydantic.Extra.forbid
+
+
+class BuildTag(BaseTag):
+    kind: Literal[TagKind.build] = TagKind.build
+    spec: BuildTagSpec
 
 
 TagConfig = Annotated[Union[CommandTag, LinkTag], Field(discriminator="kind")]
@@ -220,12 +244,14 @@ class BinaryStruct(BaseModel):
 
 
 class AppConfig(BaseModel):
+    version: str = ConfigVersion.latest
     binaries: Dict[str, BinaryStruct] = {}
 
     class Config(BaseConfig):
         json_encoders = {
             pathlib.Path: str,
             set: list,
+            ConfigVersion: str,
         }
         extra = pydantic.Extra.forbid
 
@@ -275,7 +301,7 @@ class AppConfig(BaseModel):
 
                     self.remove(app_name, existing_tag)
 
-        spec = LinkTagSpec(path=app_path, is_copy=should_copy)
+        spec = LinkTagSpec(path=app_path)
         self.binaries[app_name][tag] = LinkTag(description=description, spec=spec)
 
     def rename_tag(self, app_name: str, tag: str, new_tag: str):
@@ -346,13 +372,30 @@ class Settings(BaseSettings):
 
     _config: AppConfig = PrivateAttr(None)
 
+    def config_version(self):
+        if not self.config_path.exists():
+            return DEFAULT_CONFIG.copy(), False
+
+        with self.config_path.open() as f:
+            content = yaml.safe_load(f)
+            return content.get('version', ConfigVersion.latest)
+
+    def migrate(self):
+        with self.config_path.open() as f:
+            content = yaml.safe_load(f)
+
+        new_content = migrator.migrate(content)
+        with self.config_path.open(mode='w') as f:
+            yaml.safe_dump(new_content, f)
+
     def save(self):
         directory = self.config_path.parent
         if not self.config_path.exists():
             os.makedirs(directory, exist_ok=True)
 
+        to_dump = yaml.safe_load(self._config.json(exclude_none=True))
         with self.config_path.open(mode='w') as f:
-            yaml.safe_dump(yaml.safe_load(self._config.json(exclude_none=True)), f)
+            yaml.safe_dump(to_dump, f)
 
     def load_or_create(self) -> Tuple[AppConfig, bool]:
         if not self.config_path.exists():

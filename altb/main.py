@@ -6,7 +6,6 @@ from typing import Union, List, Dict, TypeVar, TypedDict, Tuple, Optional, cast
 
 import typer
 import yaml
-import pkg_resources
 from rich.live import Live
 from rich.tree import Tree
 from rich.text import Text
@@ -358,6 +357,12 @@ def schema(
 
         console.print(Syntax(json.dumps(schema, indent=2), "json",
                              background_color="default", word_wrap=True))
+
+
+@app.command()
+def migrate(ctx: typer.Context):
+    settings = ctx.ensure_object(Settings)
+    settings.migrate()
 
 
 @app.callback(invoke_without_command=True)
