@@ -17,6 +17,7 @@ from rich.prompt import Confirm
 from rich.syntax import Syntax
 from rich.console import ConsoleRenderable, Console, ConsoleOptions, RenderResult, Group
 
+from altb import version_file
 from altb.track import track
 from altb.common import console, error_console
 from altb.config import (Settings,
@@ -28,8 +29,6 @@ from altb.constants import TYPE_TO_COLOR, PACKAGE_NAME
 from altb.options import app_name_option, is_short_option, is_current_option, all_tags_option, full_app_name_option
 
 app = typer.Typer()
-
-__version__ = pkg_resources.get_distribution(PACKAGE_NAME).version
 
 T = TypeVar("T")
 
@@ -366,7 +365,7 @@ def _main(
         version: Optional[bool] = typer.Option(None, '-v', '--version', help='Show version', is_eager=True),
 ):
     if version is not None and version:
-        typer.echo(__version__)
+        typer.echo(version_file.version)
         raise typer.Exit()
 
 
