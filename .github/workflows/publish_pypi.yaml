@@ -1,0 +1,39 @@
+name: Create and publish a Python package
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-push-python-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+
+      - name: Install Python Poetry
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: abatilo/actions-poetry@v2.1.2
+        with:
+          poetry-version: 1.1.4
+      - name: Get the version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        id: get_version
+        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\/v/}
+        shell: bash
+      - shell: bash
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        run: |
+          python -m poetry version ${{ steps.get_version.outputs.VERSION }}
+          echo 'version = "${{ steps.get_version.outputs.VERSION }}"' > altb/version_file.py
+
+      - shell: bash
+        run: poetry install --no-dev
+      - name: Publish
+        shell: bash
+        run: poetry publish --build
+        env:
+          POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}

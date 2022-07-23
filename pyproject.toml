@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "altb"
-version = "0.3.1"
+version = "0"  # this means version is development
 description = "Cli tool for tracking over binaries and easily swapping between them"
 readme = "README.md"
 authors = ["Elran Shefer <elran777@gmail.com>"]
