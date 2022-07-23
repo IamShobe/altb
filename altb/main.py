@@ -337,28 +337,27 @@ def unlink(
 
 
 @app.command()
-def explain(
+def schema(
         ctx: typer.Context,
         model: Optional[str] = typer.Argument(None),
         dump_all: Optional[bool] = typer.Option(False, '-a', '--all', help='Dump all scheme')
 ):
     settings = ctx.ensure_object(Settings)
-
-    scheme = settings.config.schema()
+    schema = settings.config.schema()
 
     if model is not None:
-        if model not in scheme['definitions']:
+        if model not in schema['definitions']:
             error_console.print(RichText('model `{model}` does not exists', model=model))
             raise typer.Exit(1)
 
-        console.print(Syntax(json.dumps(scheme['definitions'][model], indent=2), "json",
+        console.print(Syntax(json.dumps(schema['definitions'][model], indent=2), "json",
                              background_color="default", word_wrap=True))
 
     else:
         if not dump_all:
-            del scheme['definitions']
+            del schema['definitions']
 
-        console.print(Syntax(json.dumps(scheme, indent=2), "json",
+        console.print(Syntax(json.dumps(schema, indent=2), "json",
                              background_color="default", word_wrap=True))
 
 
