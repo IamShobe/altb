@@ -75,7 +75,7 @@ class Selector(ConsoleRenderable):
     ) -> RenderResult:
         for i, row in enumerate(self.options):
             marked_char = "⬢" if i in self.marked else "⬡"
-            hovered_char = "⮞" if i == self._hovered else " "
+            hovered_char = "➤" if i == self._hovered else " "
             symbol_style_fg = "default"
             symbol_style_bg = "default"
             text_style_fg = "default"
