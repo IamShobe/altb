@@ -5,7 +5,7 @@ import typer
 from altb.common import error_console
 from altb.config import Settings, LinkTag, CommandTag
 
-app_name_regex = re.compile(r'(?P<app_name>\w+)(?:@(?P<tag>.+))?')
+app_name_regex = re.compile(r'(?P<app_name>[\w\-_]+)(?:@(?P<tag>.+))?')
 
 
 def complete_app_name(ctx: typer.Context, incomplete: str):
