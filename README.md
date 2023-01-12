@@ -4,6 +4,8 @@ Linked paths are added to `$HOME/.local/bin` according to [XDG Base Directory Sp
 Config file is located at `$HOME/.config/altb/config.yaml`.
 
 ### How to start?
+
+**Must use Python > 3.9**
 execute:
 ```bash
 pipx install altb
