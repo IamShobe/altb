@@ -12,7 +12,7 @@ classifiers = [
 homepage = "https://github.com/IamShobe/altb"
 
 [tool.poetry.dependencies]
-python = "^3.7"
+python = "^3.9"
 rich = "^10.15.2"
 getch = "^1.0"
 blessed = "^1.19.0"
