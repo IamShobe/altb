@@ -3,7 +3,6 @@ import curses
 import json
 from contextlib import contextmanager
 from typing import ContextManager, Union, List, Dict, TypeVar, TypedDict, Tuple, Optional, cast
-from collections.abc import Generator
 
 import typer
 import yaml
@@ -313,7 +312,6 @@ def use(
     console.print(RichText('using tag {tag} for app {app_name}', tag=tag, app_name=app_name))
     with settings_changes(settings):
         settings.config.select(app_name, tag, force=force)
-
 
 
 @app.command()
