@@ -2,11 +2,11 @@ import sys
 import curses
 import json
 from contextlib import contextmanager
-from typing import Union, List, Dict, TypeVar, TypedDict, Tuple, Optional, cast
+from typing import ContextManager, Union, List, Dict, TypeVar, TypedDict, Tuple, Optional, cast
+from collections.abc import Generator
 
 import typer
 import yaml
-import pkg_resources
 from rich.live import Live
 from rich.tree import Tree
 from rich.text import Text
@@ -26,9 +26,13 @@ from altb.config import (Settings,
                          settings_changes,
                          pretty_errors, CommandTag, LinkTag)
 from altb.constants import TYPE_TO_COLOR, PACKAGE_NAME
-from altb.options import app_name_option, is_short_option, is_current_option, all_tags_option, full_app_name_option
+from altb.options import (app_name_option,
+                          is_short_option,
+                          is_current_option,
+                          all_tags_option,
+                          full_app_name_option, should_force_option)
 
-app = typer.Typer()
+app = typer.Typer(pretty_exceptions_enable=False)
 
 T = TypeVar("T")
 
@@ -98,7 +102,7 @@ class Selector(ConsoleRenderable):
 
 
 @contextmanager
-def run_selector(options: List[Dict[str, T]], single=True) -> List[T]:
+def run_selector(options: List[Dict[str, T]], single=True) -> ContextManager[Tuple[Live, Selector]]:
     term = Terminal()
     selector = Selector(options)
     with term.cbreak(), term.hidden_cursor():
@@ -156,10 +160,10 @@ app.add_typer(track, name="track")
 @app.command(name="list")
 def list_applications(
         ctx: typer.Context,
-        app_name: Optional[str] = app_name_option,
-        is_short: bool = is_short_option,
-        all_tags: bool = all_tags_option,
-        current_only: bool = is_current_option,
+        app_name=app_name_option,
+        is_short=is_short_option,
+        all_tags=all_tags_option,
+        current_only=is_current_option,
 ):
     """List all applications tracked."""
     settings = ctx.ensure_object(Settings)
@@ -221,7 +225,7 @@ def rename_tag(
 ):
     """Rename tag."""
     settings = ctx.ensure_object(Settings)
-    app_name, tag = app_details  # type: str
+    app_name, tag = app_details
     if not tag:
         error_console.print(RichText('tag not specified for application {app_name}', app_name=app_name))
         raise typer.Exit(1)
@@ -238,7 +242,7 @@ def describe(
 ):
     """Add description to a given app's tag."""
     settings = ctx.ensure_object(Settings)
-    app_name, tag = app_details  # type: str
+    app_name, tag = app_details
     if not tag:
         error_console.print(RichText('tag not specified for application {app_name}', app_name=app_name))
         raise typer.Exit(1)
@@ -252,9 +256,24 @@ def describe(
         settings.config.describe_tag(app_name, tag, description)
 
 
+def get_app_dynamic(settings: Settings):
+    apps: List[str] = natsorted(settings.config.binaries.keys())
+    options: List[Entry] = []
+    for app_name in apps:
+        options.append({
+            "key": RichText("{app_name}", app_name=app_name).text,
+            "value": app_name,
+        })
+
+    with run_selector(options) as context:
+        live, selector = context
+        app_name = selector.selections[0]
+        live.update(RichText('select tag for {app_name}:', app_name=app_name))
+        return app_name
+
+
 def get_tag_dynamic(settings: Settings, app_name: str):
-    tags: List[Tuple[str, TagConfig]] = \
-        natsorted(settings.config.binaries[app_name].tags.items(), key=lambda a: a[0])
+    tags = natsorted(settings.config.binaries[app_name].tags.items(), key=lambda a: a[0])
     options: List[Entry] = []
     for tag, details in tags:
         if isinstance(details, LinkTag):
@@ -273,31 +292,34 @@ def get_tag_dynamic(settings: Settings, app_name: str):
                 "value": tag,
             })
 
-    with run_selector(options) as (live, selector):
+    with run_selector(options) as context:
+        live, selector = context
         tag = selector.selections[0]
-        live.update(RichText('using tag {tag} for app {app_name}', tag=tag, app_name=app_name))
         return tag
 
 
 @app.command()
 def use(
         ctx: typer.Context,
-        app_details: str = full_app_name_option,
+        app_details=full_app_name_option,
+        force=should_force_option,
 ):
     """Select which tag to run of a given app."""
     settings = ctx.ensure_object(Settings)
-    app_name, tag = app_details  # type: str
+    app_name, tag = app_details
     if not tag:
         tag = get_tag_dynamic(settings, app_name)
 
+    console.print(RichText('using tag {tag} for app {app_name}', tag=tag, app_name=app_name))
     with settings_changes(settings):
-        settings.config.select(app_name, tag)
+        settings.config.select(app_name, tag, force=force)
+
 
 
 @app.command()
 def run(
         ctx: typer.Context,
-        app_name: str = app_name_option,
+        app_name=app_name_option,
         args: Optional[List[str]] = typer.Argument(None)
 ):
     """Run application with propagated args."""
@@ -312,11 +334,11 @@ def run(
 @app.command()
 def untrack(
         ctx: typer.Context,
-        app_details: str = full_app_name_option,
+        app_details=full_app_name_option,
 ):
     """Remove tracking of a tag completely."""
     settings = ctx.ensure_object(Settings)
-    app_name, tag = app_details  # type: str
+    app_name, tag = app_details
     if not tag:
         tag = get_tag_dynamic(settings, app_name)
 
@@ -327,7 +349,7 @@ def untrack(
 @app.command()
 def unlink(
         ctx: typer.Context,
-        app_name: str = app_name_option,
+        app_name=app_name_option,
 ):
     """Unset selected tag for a given app."""
     settings = ctx.ensure_object(Settings)
@@ -362,11 +384,20 @@ def schema(
 
 @app.callback(invoke_without_command=True)
 def _main(
+        ctx: typer.Context,
         version: Optional[bool] = typer.Option(None, '-v', '--version', help='Show version', is_eager=True),
 ):
     if version is not None and version:
         typer.echo(version_file.version)
         raise typer.Exit()
+
+    if ctx.invoked_subcommand is not None:
+        return
+
+    # if no subcommand is specified, use the default one
+    settings = ctx.ensure_object(Settings)
+    app_name = get_app_dynamic(settings)
+    ctx.invoke(use, ctx=ctx, app_details=(app_name, None))
 
 
 def main():

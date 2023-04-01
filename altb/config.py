@@ -38,7 +38,7 @@ class RichText(ConsoleRenderable):
         return self.msg.format(**new_kwargs)
 
     def __rich_console__(
-        self, console: Console, options: ConsoleOptions,
+            self, console: Console, options: ConsoleOptions,
     ) -> RenderResult:
         yield self.text
 
@@ -141,15 +141,15 @@ class BinaryStruct(BaseModel):
         return pathlib.Path.home() / '.local' / 'bin' / self.name
 
     def unselect_current_tag(self):
-        selected = self.tags[self.selected]
         destination = self.destination
 
-        if isinstance(selected, LinkTag):
-            if destination.exists():
+        # if the destination is a symlink, we can just unlink it
+        # if it's a file, we need to remove it
+        if destination.exists():
+            if destination.is_symlink():
                 destination.unlink()
 
-        elif isinstance(selected, CommandTag):
-            if destination.exists():
+            else:
                 os.remove(destination)
 
         self.selected = None
@@ -203,7 +203,7 @@ class BinaryStruct(BaseModel):
 
         subprocess.call(full_command, cwd=working_directory, env=process_env)
 
-    def assert_valid(self):
+    def assert_owned_reference(self):
         selected_tag = self.selected
         selected_struct = self.tags[selected_tag]
         if isinstance(selected_struct, LinkTag):
@@ -263,7 +263,15 @@ class AppConfig(BaseModel):
                 raise RichValueError(f"Can not copy file to path - '{app_path}': already exists. "
                                      f"Please delete it manually or use -f flag")
             shutil.copy(original_app_path, app_path)
+            os.chmod(app_path, 0o755)  # make sure it's executable
 
+        self._dedup_paths(app_name, app_path, force=force)
+
+        self.binaries[app_name][tag] = LinkTag(description=description,
+                                               spec=LinkTagSpec(path=app_path, is_copy=should_copy))
+        self.select(app_name, tag, force=force)  # select added tag automatically
+
+    def _dedup_paths(self, app_name: str, app_path: pathlib.Path, force: bool):
         copy_tags = {**self.binaries[app_name].tags}
         for existing_tag, binary_config in copy_tags.items():
             if isinstance(binary_config, LinkTag):
@@ -274,9 +282,6 @@ class AppConfig(BaseModel):
                                              app_path=app_path, tag=existing_tag, app_name=app_name)
 
                     self.remove(app_name, existing_tag)
-
-        spec = LinkTagSpec(path=app_path, is_copy=should_copy)
-        self.binaries[app_name][tag] = LinkTag(description=description, spec=spec)
 
     def rename_tag(self, app_name: str, tag: str, new_tag: str):
         if app_name not in self.binaries:
@@ -299,7 +304,7 @@ class AppConfig(BaseModel):
         obj = self.binaries[app_name][tag]
         obj.description = description
 
-    def select(self, app_name: str, tag: Optional[str]):
+    def select(self, app_name: str, tag: Optional[str], force: bool = False):
         if app_name not in self.binaries:
             raise RichValueError("app {app_name} isn't tracked!", app_name=app_name)
 
@@ -307,9 +312,10 @@ class AppConfig(BaseModel):
             raise RichValueError("tag {tag} doesn't exist in application {app_name}", app_name=app_name, tag=tag)
 
         app = self.binaries[app_name]
-        if app.selected:
-            app.assert_valid()
-            app.unselect_current_tag()
+        if not force:
+            app.assert_owned_reference()
+
+        app.unselect_current_tag()
 
         if tag is not None:
             app.select_tag(tag)
