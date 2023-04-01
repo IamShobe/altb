@@ -20,7 +20,7 @@ def path(
 ):
     """Add new tracking of path kind."""
     settings = ctx.ensure_object(Settings)
-    app_name, tag = app_details  # type: str
+    app_name, tag = app_details
     with settings_changes(settings):
         settings.config.track_path(app_name, app_path, tag=tag, description=description, should_copy=should_copy,
                                    force=force)
@@ -37,7 +37,7 @@ def command(
 ):
     """Add new tracking of command kind."""
     settings = ctx.ensure_object(Settings)
-    app_name, tag = app_details  # type: str
+    app_name, tag = app_details
     with settings_changes(settings):
         settings.config.track_command(app_name, command_string, tag=tag, description=description,
                                       working_directory=working_directory)
