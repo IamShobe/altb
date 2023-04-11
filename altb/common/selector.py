@@ -1,6 +1,6 @@
 import curses
 from contextlib import contextmanager
-from typing import Union, List, TypedDict, Tuple, Generic, Set, Generator, Any
+from typing import Union, List, TypedDict, Tuple, Set, Generator, Any
 
 from rich.live import Live
 from rich.text import Text
