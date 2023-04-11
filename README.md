@@ -41,7 +41,7 @@ altb use python@2.7
 ```
 this will link the tracked path to `~/.local/bin/<app_name>` in this case - `~/.local/bin/python`
 
-Copy specific standalone binary automatically to `~/.local/altb/versions/<app_name>/<app_name>_<tag>`
+Copy specific standalone binary automatically to `~/.local/share/altb/versions/<app_name>/<app_name>_<tag>`
 ```bash
 altb track path helm@3 ~/Downloads/helm --copy
 ```
