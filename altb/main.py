@@ -1,147 +1,46 @@
 import sys
-import curses
 import json
-from contextlib import contextmanager
-from typing import ContextManager, Union, List, Dict, TypeVar, TypedDict, Tuple, Optional, cast
+from typing import List, Optional, cast
 
 import typer
 import yaml
-from rich.live import Live
 from rich.tree import Tree
 from rich.text import Text
-from blessed import Terminal
 from natsort import natsorted
 from rich.padding import Padding
 from rich.prompt import Confirm
 from rich.syntax import Syntax
-from rich.console import ConsoleRenderable, Console, ConsoleOptions, RenderResult, Group
+from rich.console import Group
 
 from altb import version_file
+from altb.common.console import error_console, console
+from altb.common.rich import RichText
+from altb.common.selector import Entry, run_selector
+from altb.common.utils import pretty_errors
+from altb.model.config import AppConfig
+from altb.model.settings import Settings
+from altb.model.tags import TagConfig, LinkTag, CommandTag
+from altb.service import AltbService
 from altb.track import track
-from altb.common import console, error_console
-from altb.config import (Settings,
-                         RichText,
-                         TagConfig,
-                         settings_changes,
-                         pretty_errors, CommandTag, LinkTag)
-from altb.constants import TYPE_TO_COLOR, PACKAGE_NAME
+from altb.common.constants import TYPE_TO_COLOR, PACKAGE_NAME
 from altb.options import (app_name_option,
                           is_short_option,
                           is_current_option,
                           all_tags_option,
                           full_app_name_option, should_force_option)
 
+
 app = typer.Typer(pretty_exceptions_enable=False)
 
-T = TypeVar("T")
-
-
-class Entry(TypedDict):
-    key: Union[str, Text]
-    value: T
-
-
-class Selector(ConsoleRenderable):
-    def __init__(self, options: List[Entry]):
-        self.options = options
-        self.marked = set()
-        self._hovered = 0
-
-    def increment(self):
-        if self._hovered < len(self.options) - 1:
-            self._hovered += 1
-
-        else:
-            self._hovered = 0
-
-    def decrement(self):
-        if self._hovered > 0:
-            self._hovered -= 1
-
-        else:
-            self._hovered = len(self.options) - 1
-
-    def select(self):
-        element = self._hovered
-        if element in self.marked:
-            self.marked.remove(element)
-
-        else:
-            self.marked.add(element)
-
-    @property
-    def selections(self) -> List[T]:
-        return [self.options[i]['value'] for i in self.marked]
-
-    def __rich_console__(
-            self, console: Console, options: ConsoleOptions
-    ) -> RenderResult:
-        for i, row in enumerate(self.options):
-            marked_char = "⬢" if i in self.marked else "⬡"
-            hovered_char = "➤" if i == self._hovered else " "
-            symbol_style_fg = "default"
-            symbol_style_bg = "default"
-            text_style_fg = "default"
-            text_style_bg = "default"
-            hovered_style_fg = "default"
-            hovered_style_bg = "default"
-            if i == self._hovered:
-                hovered_style_bg = symbol_style_bg = text_style_bg = "default"
-                hovered_style_fg = symbol_style_fg = text_style_fg = "default"
-
-            if i in self.marked:
-                text_style_fg = "green4"
-                symbol_style_fg = "green4"
-
-            text_style = f"{text_style_fg} on {text_style_bg}"
-            symbol_style = f"{symbol_style_fg} on {symbol_style_bg}"
-            hovered_style = f"{hovered_style_fg} on {hovered_style_bg}"
-            rendered_row = Text(f"{hovered_char} ", style=hovered_style, end="")
-            yield Group(rendered_row, row['key'])
-
-
-@contextmanager
-def run_selector(options: List[Dict[str, T]], single=True) -> ContextManager[Tuple[Live, Selector]]:
-    term = Terminal()
-    selector = Selector(options)
-    with term.cbreak(), term.hidden_cursor():
-        with Live(selector, auto_refresh=False) as live:  # update 4 times a second to feel fluid
-            try:
-                done = False
-                while not done:
-                    val = term.inkey(timeout=0.5)
-                    if val.is_sequence and val.code == curses.KEY_DOWN or \
-                            (not val.is_sequence and str(val).lower() == "j") or \
-                            (val.code == term.KEY_TAB):
-                        selector.increment()
-
-                    elif (val.is_sequence and val.code == curses.KEY_UP) or \
-                            (not val.is_sequence and str(val).lower() == "k"):
-                        selector.decrement()
-
-                    elif str(val) == " ":
-                        selector.select()
-                        if single:
-                            done = True
-
-                    elif val.is_sequence and val.code == curses.KEY_ENTER:
-                        if single:
-                            selector.select()
-                        done = True
-
-                    live.refresh()
-
-                yield live, selector
-
-            except KeyboardInterrupt:
-                raise
+app.add_typer(track, name="track")
 
 
 @app.command()
 def config(ctx: typer.Context, is_json: bool = typer.Option(False, '-j', '--json', help='Output in json format')):
     """Get the config specifications."""
     settings = ctx.ensure_object(Settings)
-    to_print = settings.config.json(indent=2)
+    service = AltbService(settings)
+    to_print = service.config.json(indent=2)
     if not is_json:
         to_print = yaml.safe_dump(yaml.safe_load(to_print))
 
@@ -151,9 +50,6 @@ def config(ctx: typer.Context, is_json: bool = typer.Option(False, '-j', '--json
 
     else:
         typer.echo(to_print)
-
-
-app.add_typer(track, name="track")
 
 
 @app.command(name="list")
@@ -166,16 +62,18 @@ def list_applications(
 ):
     """List all applications tracked."""
     settings = ctx.ensure_object(Settings)
-    if len(settings.config.binaries) == 0:
+    service = AltbService(settings)
+
+    if len(service.config.binaries) == 0:
         error_console.print(f'No binaries currently tracked, please use "{PACKAGE_NAME} track" command to start')
         return
 
-    if app_name is not None and app_name not in settings.config.binaries:
+    if app_name is not None and app_name not in service.config.binaries:
         error_console.print(RichText('app {app_name} doesn\'t exist in config!', app_name=app_name))
         raise typer.Exit(1)
 
     if app_name is not None and current_only:
-        selected_tag = settings.config.binaries[app_name].selected
+        selected_tag = service.config.binaries[app_name].selected
         if not selected_tag:
             error_console.print(RichText("app {app_name} doesn\'t have selected tag!", app_name=app_name))
             raise typer.Exit(1)
@@ -183,11 +81,11 @@ def list_applications(
         console.print(Text(selected_tag, style=TYPE_TO_COLOR['tag']))
         return
 
-    app_names = [app_name] if app_name is not None else settings.config.binaries.keys()
+    app_names = [app_name] if app_name is not None else service.config.binaries.keys()
     for app_name in app_names:
         tree = Tree(Text(app_name, style=TYPE_TO_COLOR['app_name']))
-        selected_tag = settings.config.binaries[app_name].selected
-        for tag, value in natsorted(settings.config.binaries[app_name].tags.items(), key=lambda a: a[0]):
+        selected_tag = service.config.binaries[app_name].selected
+        for tag, value in natsorted(service.config.binaries[app_name].tags.items(), key=lambda a: a[0]):
             tag_struct = cast(TagConfig, value)
             if not all_tags and tag != selected_tag:
                 continue
@@ -229,8 +127,8 @@ def rename_tag(
         error_console.print(RichText('tag not specified for application {app_name}', app_name=app_name))
         raise typer.Exit(1)
 
-    with settings_changes(settings):
-        settings.config.rename_tag(app_name, tag, tag_name)
+    with pretty_errors(), AltbService(settings) as service:
+        service.rename_tag(app_name, tag, tag_name)
 
 
 @app.command()
@@ -251,12 +149,12 @@ def describe(
         if not should_continue:
             raise typer.Exit(1)
 
-    with settings_changes(settings):
-        settings.config.describe_tag(app_name, tag, description)
+    with pretty_errors(), AltbService(settings) as service:
+        service.describe_tag(app_name, tag, description)
 
 
-def get_app_dynamic(settings: Settings):
-    apps: List[str] = natsorted(settings.config.binaries.keys())
+def get_app_dynamic(app_config: AppConfig):
+    apps: List[str] = natsorted(app_config.binaries.keys())
     options: List[Entry] = []
     for app_name in apps:
         options.append({
@@ -271,8 +169,8 @@ def get_app_dynamic(settings: Settings):
         return app_name
 
 
-def get_tag_dynamic(settings: Settings, app_name: str):
-    tags = natsorted(settings.config.binaries[app_name].tags.items(), key=lambda a: a[0])
+def get_tag_dynamic(app_config: AppConfig, app_name: str):
+    tags = natsorted(app_config.binaries[app_name].tags.items(), key=lambda a: a[0])
     options: List[Entry] = []
     for tag, details in tags:
         if isinstance(details, LinkTag):
@@ -305,13 +203,14 @@ def use(
 ):
     """Select which tag to run of a given app."""
     settings = ctx.ensure_object(Settings)
+    service = AltbService(settings)
     app_name, tag = app_details
     if not tag:
-        tag = get_tag_dynamic(settings, app_name)
+        tag = get_tag_dynamic(service.config, app_name)
 
     console.print(RichText('using tag {tag} for app {app_name}', tag=tag, app_name=app_name))
-    with settings_changes(settings):
-        settings.config.select(app_name, tag, force=force)
+    with pretty_errors(), AltbService(settings) as service:
+        service.select(app_name, tag, force=force)
 
 
 @app.command()
@@ -325,8 +224,8 @@ def run(
         args = []
 
     settings = ctx.ensure_object(Settings)
-    with pretty_errors():
-        settings.config.run(app_name, args)
+    with pretty_errors(), AltbService(settings) as service:
+        service.run(app_name, args)
 
 
 @app.command()
@@ -336,12 +235,13 @@ def untrack(
 ):
     """Remove tracking of a tag completely."""
     settings = ctx.ensure_object(Settings)
+    service = AltbService(settings)
     app_name, tag = app_details
     if not tag:
-        tag = get_tag_dynamic(settings, app_name)
+        tag = get_tag_dynamic(service.config, app_name)
 
-    with settings_changes(settings):
-        settings.config.remove(app_name, tag)
+    with pretty_errors(), AltbService(settings) as service:
+        service.remove(app_name, tag)
 
 
 @app.command()
@@ -351,8 +251,8 @@ def unlink(
 ):
     """Unset selected tag for a given app."""
     settings = ctx.ensure_object(Settings)
-    with settings_changes(settings):
-        settings.config.select(app_name, tag=None)
+    with pretty_errors(), AltbService(settings) as service:
+        service.select(app_name, tag=None)
 
 
 @app.command()
@@ -362,7 +262,8 @@ def schema(
         dump_all: Optional[bool] = typer.Option(False, '-a', '--all', help='Dump all scheme')
 ):
     settings = ctx.ensure_object(Settings)
-    schema = settings.config.schema()
+    service = AltbService(settings)
+    schema = service.config.schema()
 
     if model is not None:
         if model not in schema['definitions']:
@@ -394,7 +295,8 @@ def _main(
 
     # if no subcommand is specified, use the default one
     settings = ctx.ensure_object(Settings)
-    app_name = get_app_dynamic(settings)
+    service = AltbService(settings)
+    app_name = get_app_dynamic(service.config)
     ctx.invoke(use, ctx=ctx, app_details=(app_name, None))
 
 

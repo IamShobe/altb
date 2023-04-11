@@ -1,12 +1,6 @@
-import pathlib
 from typing import TypedDict
 
 PACKAGE_NAME = "altb"
-
-CONFIG_FILE = (pathlib.Path.home() / '.config' / f'{PACKAGE_NAME}' / 'config.yaml').resolve()
-
-LOCAL_DIRECTORY = (pathlib.Path.home() / '.local' / f'{PACKAGE_NAME}').resolve()
-VERSIONS_DIRECTORY = (LOCAL_DIRECTORY / 'versions').resolve()
 
 
 class TypeColor(TypedDict):

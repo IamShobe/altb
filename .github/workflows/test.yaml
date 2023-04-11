@@ -1,0 +1,27 @@
+name: Test
+
+on: push
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+
+      - name: Install Python Poetry
+        uses: abatilo/actions-poetry@v2.2.0
+
+      - shell: bash
+        run: poetry install
+
+      - shell: bash
+        run: poetry run pytest
+
+      - shell: bash
+        run: poetry run ruff check .
+
+      - shell: bash
+        run: poetry run mypy .

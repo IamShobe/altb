@@ -1,18 +1,20 @@
-import pathlib
 import re
 from typing import Optional
 
 import typer
 
-from altb.common import error_console
-from altb.config import Settings, LinkTag, CommandTag
+from altb.common.console import error_console
+from altb.model.settings import Settings
+from altb.model.tags import LinkTag, CommandTag
+from altb.service import AltbService
 
 app_name_regex = re.compile(r'(?P<app_name>[\w\-_]+)(?:@(?P<tag>.+))?')
 
 
 def complete_app_name(ctx: typer.Context, incomplete: str):
     settings = ctx.ensure_object(Settings)
-    for app_name in settings.config.binaries:
+    service = AltbService(settings)
+    for app_name in service.config.binaries:
         if incomplete in app_name:
             yield app_name
 
@@ -28,12 +30,13 @@ def parse_app_name(ctx: typer.Context, full_app_name: str) -> tuple[str, str]:
 
 def complete_full_app_name(ctx: typer.Context, incomplete: str):
     settings = ctx.ensure_object(Settings)
+    service = AltbService(settings)
     app_names = list(complete_app_name(ctx, incomplete))
     if "@" not in incomplete and len(app_names) > 1:
         yield from app_names
 
     else:
-        for key, binary_struct in settings.config.binaries.items():
+        for key, binary_struct in service.config.binaries.items():
             yield key
             for tag, tag_struct in binary_struct.tags.items():
                 full_name = f"{key}@{tag}"

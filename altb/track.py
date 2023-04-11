@@ -3,8 +3,10 @@ from typing import Optional
 
 import typer
 
-from altb.config import Settings, settings_changes
+from altb.common.utils import pretty_errors
+from altb.model.settings import Settings
 from altb.options import should_copy_option, should_force_option, full_app_name_option
+from altb.service import AltbService
 
 track = typer.Typer()
 
@@ -21,9 +23,8 @@ def path(
     """Add new tracking of path kind."""
     settings = ctx.ensure_object(Settings)
     app_name, tag = app_details
-    with settings_changes(settings):
-        settings.config.track_path(app_name, app_path, tag=tag, description=description, should_copy=should_copy,
-                                   force=force)
+    with pretty_errors(), AltbService(settings) as service:
+        service.track_path(app_name, app_path, tag=tag, description=description, should_copy=should_copy, force=force)
 
 
 @track.command()
@@ -38,6 +39,6 @@ def command(
     """Add new tracking of command kind."""
     settings = ctx.ensure_object(Settings)
     app_name, tag = app_details
-    with settings_changes(settings):
-        settings.config.track_command(app_name, command_string, tag=tag, description=description,
-                                      working_directory=working_directory)
+    with pretty_errors(), AltbService(settings) as service:
+        service.track_command(app_name, command_string, tag=tag, description=description,
+                              working_directory=working_directory)
