@@ -54,3 +54,8 @@ this especially useful for latest developments, example:
 ```bash
 altb track command special_command@latest "go run ./cmd/special_command" --working-directory "$HOME/special_command"
 ```
+
+
+## Docs
+### Migrations
+- (Migrate to v0.5.0 and above from lower versions)[docs/migrations/migrate_to_0_5_0.md]
