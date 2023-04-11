@@ -13,7 +13,7 @@ homepage = "https://github.com/IamShobe/altb"
 
 [tool.poetry.dependencies]
 python = "^3.9"
-rich = "^10.15.2"
+rich = "^13.3.3"
 getch = "^1.0"
 blessed = "^1.19.0"
 pydantic = "^1.8.2"
