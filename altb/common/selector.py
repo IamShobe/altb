@@ -1,6 +1,6 @@
 import curses
 from contextlib import contextmanager
-from typing import Union, List, TypeVar, TypedDict, Tuple, Generic, Set, Generator
+from typing import Union, List, TypedDict, Tuple, Generic, Set, Generator, Any
 
 from rich.live import Live
 from rich.text import Text
@@ -9,15 +9,12 @@ from blessed import Terminal
 from rich.console import ConsoleRenderable, Console, ConsoleOptions, RenderResult, Group
 
 
-T = TypeVar("T")
-
-
-class Entry(TypedDict, Generic[T]):
+class Entry(TypedDict):
     key: Union[str, Text]
-    value: T
+    value: Any
 
 
-class Selector(ConsoleRenderable, Generic[T]):
+class Selector(ConsoleRenderable):
     def __init__(self, options: List[Entry]):
         self.options = options
         self.marked_indexes: Set[int] = set()
@@ -46,7 +43,7 @@ class Selector(ConsoleRenderable, Generic[T]):
             self.marked_indexes.add(element)
 
     @property
-    def selections(self) -> List[T]:
+    def selections(self) -> List[Any]:
         return [self.options[i]['value'] for i in self.marked_indexes]
 
     def __rich_console__(
@@ -69,9 +66,9 @@ class Selector(ConsoleRenderable, Generic[T]):
 
 
 @contextmanager
-def run_selector(options: List[Entry[T]], single=True) -> Generator[Tuple[Live, Selector[T]], None, None]:
+def run_selector(options: List[Entry], single=True) -> Generator[Tuple[Live, Selector], None, None]:
     term = Terminal()
-    selector: Selector[T] = Selector(options)
+    selector = Selector(options)
     with term.cbreak(), term.hidden_cursor():
         with Live(selector, auto_refresh=False) as live:  # update 4 times a second to feel fluid
             try:
