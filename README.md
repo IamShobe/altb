@@ -58,4 +58,4 @@ altb track command special_command@latest "go run ./cmd/special_command" --worki
 
 ## Docs
 ### Migrations
-- (Migrate to v0.5.0 and above from lower versions)[docs/migrations/migrate_to_0_5_0.md]
+- [Migrate to v0.5.0 and above from lower versions](./docs/migrations/migrate_to_0_5_0.md)
