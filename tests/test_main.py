@@ -112,7 +112,7 @@ def test_copy_fail_if_destination_exists(runner: CliRunner, random_file_path: st
     )
 
     assert result.exit_code == 1
-    assert "already exists" in result.stdout
+    assert "already exists" in result.stdout.replace("\n", "")
 
 
 def test_copy_success_if_force_when_destination_exists(runner: CliRunner, random_file_path: str, home_path: str):
