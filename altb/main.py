@@ -29,7 +29,6 @@ from altb.options import (app_name_option,
                           all_tags_option,
                           full_app_name_option, should_force_option)
 
-
 app = typer.Typer(pretty_exceptions_enable=False)
 
 app.add_typer(track, name="track")
@@ -56,9 +55,9 @@ def config(ctx: typer.Context, is_json: bool = typer.Option(False, '-j', '--json
 def list_applications(
         ctx: typer.Context,
         app_name=app_name_option,
-        is_short=is_short_option,
-        all_tags=all_tags_option,
-        current_only=is_current_option,
+        is_short: bool = is_short_option,
+        all_tags: bool = all_tags_option,
+        current_only: bool = is_current_option,
 ):
     """List all applications tracked."""
     settings = ctx.ensure_object(Settings)
@@ -199,7 +198,7 @@ def get_tag_dynamic(app_config: AppConfig, app_name: str):
 def use(
         ctx: typer.Context,
         app_details=full_app_name_option,
-        force=should_force_option,
+        force: bool = should_force_option,
 ):
     """Select which tag to run of a given app."""
     settings = ctx.ensure_object(Settings)
@@ -259,7 +258,7 @@ def unlink(
 def schema(
         ctx: typer.Context,
         model: Optional[str] = typer.Argument(None),
-        dump_all: Optional[bool] = typer.Option(False, '-a', '--all', help='Dump all scheme')
+        dump_all: bool = typer.Option(False, '-a', '--all', help='Dump all scheme')
 ):
     settings = ctx.ensure_object(Settings)
     service = AltbService(settings)
