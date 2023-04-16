@@ -54,7 +54,7 @@ def config(ctx: typer.Context, is_json: bool = typer.Option(False, '-j', '--json
 @app.command(name="list")
 def list_applications(
         ctx: typer.Context,
-        app_name: str = app_name_option,
+        app_name=app_name_option,
         is_short: bool = is_short_option,
         all_tags: bool = all_tags_option,
         current_only: bool = is_current_option,
